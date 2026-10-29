@@ -11,9 +11,9 @@
 #   point clients at http://127.0.0.1:8100/v1
 #
 # Image versions are pinned. Several config keys in this repo are version-sensitive:
-# Prometheus 3 rejects the scrape_config `name:`/`targets:` shorthand that 2.x accepted,
-# and Grafana 13 requires `providers:` + `options.path` for file provisioning (the old
-# `filename:` key panics the provisioning stub at startup). Bump these deliberately,
+# Prometheus requires `job_name` + `static_configs` for scrape jobs; Grafana's
+# file provisioning uses `apiVersion: 1`, `providers` and `options.path`.
+# `filename` is not a valid replacement for that path. Bump versions deliberately,
 # with ./scripts/verify.sh afterwards.
 services:
   proxy:

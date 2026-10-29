@@ -1,5 +1,7 @@
 DOCKER ?= $(shell command -v docker || echo /opt/homebrew/bin/docker)
 
+.PHONY: up down proxy smoke test verify report targets alerts notify notify-test route-opencode unroute-opencode
+
 up:            ## start containers + proxy
 	./scripts/up.sh
 
@@ -26,6 +28,12 @@ targets:       ## show Prometheus scrape target health
 
 alerts:        ## list firing alerts
 	curl -s http://localhost:9093/api/v2/alerts | python3 -m json.tool
+
+notify:        ## run the critical-alert desktop listener on this Mac (foreground)
+	python3 scripts/notify-macos.py
+
+notify-test:   ## ask macOS to display a test notification
+	python3 scripts/notify-macos.py --test
 
 route-opencode:## point OpenCode's splash provider at the proxy
 	./scripts/point-opencode.sh

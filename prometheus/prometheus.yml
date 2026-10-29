@@ -3,8 +3,8 @@
 # The proxy container is the single scrape target: it relays Splash's own runtime
 # metrics (/metrics/splash) and publishes request-level metrics (/metrics).
 #
-# Prometheus 3.x requires `job_name` and `static_configs` (a bare `name:` /
-# `targets:` pair is rejected by the strict YAML parser).
+# Scrape jobs require `job_name` and `static_configs`; bare `name`/`targets`
+# are not valid Prometheus scrape configuration keys.
 
 global:
   scrape_interval: 15s
@@ -13,6 +13,12 @@ global:
 
 rule_files:
   - /etc/prometheus/rules/splash-alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
 
 scrape_configs:
   # Splash's own runtime metrics (scheduler, KV cache, throughput, memory, thermal)

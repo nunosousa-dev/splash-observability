@@ -1,85 +1,27 @@
-# Alertmanager config for the Splash stack.
-#
-# Alerts are always visible at http://localhost:9093 and in Prometheus' /alerts.
-# The receivers below are what make them leave the building.
-#
-# The macOS receiver needs the listener running ON THE MAC (it posts a desktop
-# notification, so it cannot live in a container):
-#
-#   ./scripts/notify-macos.py          # or `make notify`
-#
-# Alertmanager reaches it via host.docker.internal on 127.0.0.1:9393. Alertmanager
-# cannot expand environment variables in this file, so if the listener runs elsewhere
-# edit the url below (or run your own listener on that address).
-#
-# To use Slack or email instead, uncomment one of the blocks at the bottom and
-# change the route's `receiver`.
-
+# Run `make notify` on the Mac for critical desktop notifications. Alertmanager
+# reaches the host listener over Docker Desktop's host.docker.internal gateway.
+# No credentials or external notification service are required.
 global:
   resolve_timeout: 5m
 
-receivers:
-  - name: desktop
-    webhook_configs:
-      - url: http://host.docker.internal:9393/alert
-        send_resolved: true
-
-  # Alerts routed here are only recorded, not pushed to the desktop.
-  - name: blackhole
-
 route:
-  # Default is whatever the first receiver in the file is; keep it explicit.
   receiver: desktop
   group_by: ["alertname"]
   group_wait: 30s
   group_interval: 5m
   repeat_interval: 1h
   routes:
-    # A stopped inference server is the one alert worth interrupting for, so only
-    # critical reaches the desktop. The rest stay in the UI via `make alerts`.
-    #
-    # This route has no `receiver`, so it inherits `desktop`: the alerts are still
-    # delivered and shown as active in Alertmanager, they just produce no notification
-    # because notify-macos.py declines anything that is not critical. Giving it a
-    # separate receiver would instead make those alerts unaddressable, because
-    # Alertmanager matches on alert labels and a receiver is not one.
+    # Non-critical alerts remain visible in Alertmanager but do not notify.
     - matchers:
-        - severity != "critical"
-      group_wait: 0s
-      group_interval: 5m
-      repeat_interval: 4h
+        - 'severity!="critical"'
+      receiver: quiet
 
-# Why there is no inhibition rule here, even though a dead Splash does make the
-# latency and throughput alerts noisy: Alertmanager only inhibits when the source and
-# target share ALL label values listed in `equal`. SplashUnreachable comes from the
-# splash-proxy job and the latency alerts from splash-runtime, so their `job` differs,
-# and matching on `instance` alone would suppress every non-critical alert from the
-# proxy too. There is no label that distinguishes them. The noise is handled at the
-# notification boundary instead: notify-macos.py only notifies on severity=critical.
+receivers:
+  - name: desktop
+    webhook_configs:
+      - url: http://host.docker.internal:9393/alert
+        send_resolved: true
+  - name: quiet
 
-# Example Slack receiver:
-#   - name: slack
-#     slack_configs:
-#       - api_url: https://hooks.slack.com/services/XXX/YYY/ZZZ
-#         channel: "#homelab"
-#         send_resolved: true
-#
-# Example email receiver:
-#   - name: email
-#     email_configs:
-#       - to: you@example.com
-#         from: alerts@example.com
-#         smarthost: smtp.example.com:587
-#         headers:
-#           Subject: "[Splash alert]"
-
-inhibit_rules:
-  # When Splash is unreachable every latency and throughput alert is downstream noise
-  # (there are no samples, so quantiles read NaN and "slow" alerts fire). Suppress them
-  # while the critical alert is live, matched on instance only: the upstream gauge is
-  # published by the proxy job, so the two alerts do not share a job label.
-  - source_matchers:
-      - alertname = "SplashUnreachable"
-    target_matchers:
-      - alertname =~ "SplashTTFTSlow|SplashDecodeThroughputLow|SplashRequestFailures|SplashKVCacheExhausted|SplashCacheReuseLow|SplashClientAbortsHigh"
-    equal: ["instance"]
+# To use Slack or email instead, add the appropriate receiver here and change the
+# route's receiver. Keep credentials outside version control (e.g. api_url_file).

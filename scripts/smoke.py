@@ -8,8 +8,50 @@ Usage:
 import argparse
 import json
 import os
+import sys
 import time
 import urllib.request
+
+
+def proxy_base(url):
+    """Accept either the server URL or an OpenAI-style base URL ending in /v1."""
+    base = url.rstrip("/")
+    return base[:-3] if base.endswith("/v1") else base
+
+
+def response_summary(body, content_type):
+    """Fold plain JSON or complete SSE events, including the final usage frame."""
+    if "text/event-stream" in content_type:
+        objects = []
+        data = []
+        done = False
+        for line in body.decode("utf-8").splitlines() + [""]:
+            if line.startswith("data:"):
+                data.append(line[5:].lstrip(" "))
+            elif not line and data:
+                payload = "\n".join(data)
+                data = []
+                if payload == "[DONE]":
+                    done = True
+                    break
+                objects.append(json.loads(payload))
+        if not done:
+            raise ValueError("stream ended without data: [DONE]")
+    else:
+        objects = [json.loads(body)]
+
+    usage, finish = {}, None
+    for obj in objects:
+        if not isinstance(obj, dict):
+            raise ValueError("expected a JSON object in the response")
+        if obj.get("error"):
+            raise ValueError("upstream returned an error event")
+        if isinstance(obj.get("usage"), dict):
+            usage = obj["usage"]
+        for choice in obj.get("choices", []):
+            if choice.get("finish_reason"):
+                finish = choice["finish_reason"]
+    return {"usage": usage, "finish_reason": finish}
 
 
 def chat(base, model, messages, stream=False, tools=None, max_tokens=60):
@@ -21,23 +63,20 @@ def chat(base, model, messages, stream=False, tools=None, max_tokens=60):
         payload["tools"] = tools
         payload["tool_choice"] = "auto"
     req = urllib.request.Request(
-        base.rstrip("/") + "/v1/chat/completions",
+        proxy_base(base) + "/v1/chat/completions",
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
     start = time.monotonic()
-    resp = urllib.request.urlopen(req, timeout=180)
-    body = resp.read()
-    elapsed = time.monotonic() - start
-    try:
-        obj = json.loads(body)
-    except Exception:
-        obj = {}
-    usage = obj.get("usage", {})
-    finish = (obj.get("choices", [{}])[0].get("finish_reason")
-              if obj.get("choices") else None)
-    return {"status": resp.status, "elapsed_ms": round(elapsed * 1000),
-            "usage": usage, "finish_reason": finish}
+    with urllib.request.urlopen(req, timeout=180) as resp:
+        summary = response_summary(resp.read(), resp.headers.get("Content-Type", ""))
+        return {"status": resp.status,
+                "elapsed_ms": round((time.monotonic() - start) * 1000), **summary}
+
+
+def fetch(url):
+    with urllib.request.urlopen(url, timeout=30) as resp:
+        return resp.read()
 
 
 def main():
@@ -47,6 +86,9 @@ def main():
         "SPLASH_MODEL", "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF:Q2_0"))
     ap.add_argument("--n", type=int, default=4)
     args = ap.parse_args()
+    if args.n < 1:
+        ap.error("--n must be at least 1")
+    args.proxy = proxy_base(args.proxy)
 
     tools = [{
         "type": "function",
@@ -59,7 +101,7 @@ def main():
         },
     }]
 
-    print("models:", urllib.request.urlopen(args.proxy + "/v1/models", timeout=30).read()[:120])
+    print("models:", fetch(args.proxy + "/v1/models")[:120])
 
     cases = [
         ("plain", [{"role": "user", "content": "Explain KV cache in one sentence."}], False, None),
@@ -68,28 +110,32 @@ def main():
         ("long context", [{"role": "user", "content": "Summarise this: " + "The quick brown fox. " * 200}], False, None),
     ]
 
+    failures = 0
     for i in range(args.n):
         for name, messages, stream, tool_list in cases:
             try:
                 result = chat(args.proxy, args.model, messages, stream, tool_list)
                 print("%-12s %s" % (name, result))
             except Exception as exc:
+                failures += 1
                 print("%-12s FAILED: %s" % (name, exc))
 
     print("\nproxy metrics sample:")
-    metrics = urllib.request.urlopen(args.proxy + "/metrics", timeout=30).read().decode()
+    metrics = fetch(args.proxy + "/metrics").decode()
     for line in metrics.splitlines():
         if line.startswith(("splash_obs_requests_total", "splash_obs_tokens_total",
-                            "splash_obs_tool_calls_total", "splash_obs_ttft_seconds_count")):
+                            "splash_obs_tool_calls_total", "splash_obs_ttft_seconds_count",
+                            "splash_obs_itl_seconds_count")):
             print("  " + line)
 
     print("\nupstream health:")
-    upstream = urllib.request.urlopen(args.proxy + "/metrics/splash", timeout=30).read().decode()
+    upstream = fetch(args.proxy + "/metrics/splash").decode()
     for line in upstream.splitlines():
         if line.startswith(("splash_decode_tokens_per_second", "splash_ttft_p95_milliseconds",
                             "splash_requests_failed_total", "splash_draft_acceptance_ratio")):
             print("  " + line)
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

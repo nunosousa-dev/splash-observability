@@ -21,7 +21,7 @@ if [ -z "$DOCKER" ]; then
   fi
 fi
 
-"$DOCKER" compose -f "$HERE/docker-compose.yml" up -d --build
+"$DOCKER" compose -f "$HERE/docker-compose.yml" up -d --build --wait --wait-timeout 90
 
 echo
 echo "Proxy        http://127.0.0.1:8100/v1   <- point your client at this"
@@ -31,4 +31,4 @@ echo "Alertmanager http://localhost:9093"
 echo "Loki         http://localhost:3100"
 echo
 echo "Scrape target health:"
-curl -s http://localhost:9090/api/v1/targets | python3 -c 'import sys,json; [print("  %-16s %s" % (t["labels"].get("job"), t["health"])) for t in json.load(sys.stdin)["targets"]]'
+curl -fs --max-time 10 http://localhost:9090/api/v1/targets | python3 -c 'import sys,json; [print("  %-16s %s" % (t["labels"].get("job"), t["health"])) for t in json.load(sys.stdin)["data"]["activeTargets"]]'

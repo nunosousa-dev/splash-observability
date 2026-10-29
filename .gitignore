@@ -1,6 +1,11 @@
 # macOS
 .DS_Store
 
+# Python bytecode and local environments
+__pycache__/
+*.py[cod]
+.venv/
+
 # Trace log: runtime output, potentially large, and it holds request metadata that
 # has no business being in version control. Keep the directory, ignore what lands in it.
 logs/*
