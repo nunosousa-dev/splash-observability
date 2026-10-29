@@ -19,19 +19,187 @@ OpenCode / scripts ──▶ proxy :8100 ──▶ Splash :8000  (loopback, unch
 Prometheus ──▶ Alertmanager :9093
 ```
 
-## Quick start
+## Work tracking
 
-Splash must already be running on `127.0.0.1:8000`.
+Remaining and future work lives in the private
+**[Splash Observability Kanban board](https://github.com/users/nunosousa-dev/projects/4/views/1)**,
+linked to this repository. GitHub sign-in with access to the project is required.
+
+**Backlog → Ready → In progress → In review → Done**
+
+Create a [repository issue](https://github.com/nunosousa-dev/splash-observability/issues)
+with the problem/outcome, scope, acceptance criteria, and validation steps. Select
+**Splash Observability** in the issue's **Projects** sidebar, start it in **Backlog**,
+and set **Priority** to High, Medium, or Low. Keep the corresponding `priority:*` label
+consistent with the project field. Move actionable work to Ready, use In progress only
+when implementation starts, and move reviewed/validated work to Done and close the
+issue. Adding a normal repository issue does **not** automatically add it to the board.
+
+## Start and stop: what runs where
+
+Run the commands below from the root of this repository. You need Docker Desktop
+running with the Docker Compose plugin, Python 3.9+, `make`, and `curl`.
+The host desktop notifier requires macOS.
+
+There are **three independently managed parts**; no single command currently starts
+or stops all three:
+
+| Part | Runs in | Start | Stop |
+| --- | --- | --- | --- |
+| Splash inference server | Your Mac, outside this project | Start its server/model using your normal Splash app or CLI setup | Stop it in that app, or Ctrl-C in its serving terminal |
+| Proxy, Prometheus, Grafana, Loki, Alertmanager | Five Docker Compose containers | `make up` | `docker compose down` |
+| Desktop notification listener (optional) | A separate terminal on your Mac | `make notify` | Ctrl-C in that terminal |
+
+### Start a normal session
+
+**1. Start Docker Desktop and Splash.** On macOS, you can open Docker Desktop with:
 
 ```bash
-make up                  # compose up -d + build
-make notify              # optional: desktop alert listener (leave in a separate terminal)
-make route-opencode      # point OpenCode's splash provider at the proxy
-make test                # proxy unit tests (stub upstream, no model needed)
-make verify TRACES=1     # end-to-end check of the whole stack
+open -a Docker
+docker info
 ```
 
-Then browse:
+Wait for `docker info` to succeed. This project does not install Splash, choose its
+model, or start its inference server. If you use the Splash app, start its server
+there. For the CLI, run `splash serve` in its **own terminal** and leave it open.
+For example, using the model ID configured as this project's smoke-test default:
+
+```bash
+splash serve \
+  --model 'ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF:Q2_0' \
+  --host 127.0.0.1 \
+  --port 8000
+```
+
+Use a supported model that fits your Mac; the first run may download model files.
+Do not launch a second server if the app or another terminal already owns port 8000.
+Wait for Splash to report **Ready**. Pressing Ctrl-C in this terminal later stops
+inference. See `splash serve --help` for model/cache options.
+
+From another terminal, check that the API is listening:
+
+```bash
+curl -fsS --max-time 10 http://127.0.0.1:8000/health
+curl -fsS --max-time 10 http://127.0.0.1:8000/v1/models
+```
+
+If either command fails, get Splash running before testing the full stack. Starting
+the containers alone does not make an unavailable inference server healthy.
+
+**2. Start the Docker stack in terminal A:**
+
+```bash
+make up
+```
+
+This builds the proxy image, creates/starts all five containers in the background,
+waits for the configured container healthchecks, and prints their URLs and scrape
+target status. You can close terminal A afterward; the containers keep running.
+
+**3. For desktop alerts, open terminal B in this repository and leave this running:**
+
+```bash
+make notify
+```
+
+This command intentionally stays in the foreground. Keep this terminal open for
+notifications. It is not started by `make up` and is not installed as a login service.
+Skip it if you only want dashboards and the Alertmanager web UI. If port 9393 is
+already occupied by this listener, do not start a second copy; see troubleshooting
+below.
+
+**4. Back in terminal A, verify the stack:**
+
+```bash
+make verify                               # health/data checks; no inference generated
+make verify TRACES=1                      # also sends four live inference requests
+./scripts/verify.sh --traces --notify      # also requires the desktop listener
+```
+
+The live checks require a loaded model. If the smoke test's default model does not
+match yours, set the exact model ID returned by `/v1/models`:
+
+```bash
+SPLASH_MODEL='your-model-id' make verify TRACES=1
+```
+
+**5. Optionally route OpenCode through the proxy:**
+
+```bash
+make route-opencode
+```
+
+This updates the existing `splash` provider's base URL in
+`~/.config/opencode/opencode.json` (or `OPENCODE_CONFIG`) and creates a `.bak` backup
+if none exists. **Restart OpenCode** for the setting to take effect. For other
+OpenAI-compatible clients, use `http://127.0.0.1:8100/v1` instead of Splash's direct
+`http://127.0.0.1:8000/v1` URL.
+
+### Stop a normal session without deleting data
+
+**1. Switch clients away from the proxy before stopping it.** If you routed OpenCode
+and want to keep using Splash directly:
+
+```bash
+make unroute-opencode
+```
+
+Restart OpenCode before continuing inference. This command sets the provider URL
+back to `http://127.0.0.1:8000/v1`; it does not restore the whole `.bak` configuration.
+Update other clients' base URLs too, or stop those clients. Otherwise, they will keep
+trying the stopped proxy on port 8100.
+
+**2. In terminal B, press Ctrl-C** to stop the desktop notifier.
+
+**3. In terminal A, stop and remove the five containers and their Compose network:**
+
+```bash
+docker compose down
+```
+
+This preserves the named volumes containing Prometheus metrics, Grafana settings,
+and Loki logs. It also leaves `logs/requests.jsonl` and its rotated files on the host.
+Running `make up` later reuses that data. **Do not add `--volumes` / `-v`** unless
+you intentionally want to delete the stack's persisted container data.
+
+**4. Stop Splash separately** in its app or serving terminal if you no longer need
+inference. You can leave Splash running if another client still uses it directly.
+Stopping Alertmanager before Splash avoids a needless "Splash unreachable" desktop
+alert during an intentional shutdown.
+
+> **About `make down`:** the current wrapper calls `docker compose down`, but also runs
+> `pkill -f splash_obs_proxy.py`, which can stop host proxies belonging to other
+> checkouts or tests. It does not stop Splash or the desktop notifier. Prefer the
+> explicit `docker compose down` command above until
+> [issue #8](https://github.com/nunosousa-dev/splash-observability/issues/8) is fixed.
+
+### Restart, inspect, or stop individual services
+
+```bash
+docker compose ps                         # container state and health
+docker compose logs --tail 100            # recent logs from all containers
+docker compose logs --tail 100 -f proxy   # follow one service; Ctrl-C stops only the log viewer
+
+docker compose restart                   # restart all existing stack containers
+docker compose restart prometheus        # restart one existing service after a config edit
+docker compose stop grafana              # stop one service, leaving its container/data intact
+docker compose start grafana             # start that existing container again
+
+make up                                  # rebuild proxy/apply Compose changes; also resumes stopped services
+make targets                             # Prometheus scrape health
+make alerts                              # alerts currently visible in Alertmanager
+make report                              # summary of the local trace log
+make test                                # offline tests; no running services or model required
+```
+
+Valid Compose service names are `proxy`, `prometheus`, `grafana`, `loki`, and
+`alertmanager`. `docker compose restart` does not rebuild images or apply changed
+Compose environment settings: use `make up` for those. For an edited bind-mounted
+Prometheus, Loki, Alertmanager, or Grafana provisioning file, restart the affected
+service so it reloads the file. The host notifier must be stopped with Ctrl-C and
+started again separately to pick up changes to its script or environment.
+
+### Service URLs
 
 | Service | URL | Notes |
 | --- | --- | --- |
@@ -41,9 +209,26 @@ Then browse:
 | Loki | <http://localhost:3100> | trace logs, `{app="splash-obs"}` |
 | Proxy (client) | `http://127.0.0.1:8100/v1` | point OpenAI-compatible clients here |
 | Proxy (metrics) | <http://127.0.0.1:8101/metrics> | loopback only, for curling locally |
+| Desktop notifier | <http://127.0.0.1:9393/healthz> | only available while `make notify` is running |
+| Splash (external) | <http://127.0.0.1:8000/health> | start/stop separately using your Splash setup |
 
-`make down` stops everything and keeps the volumes. `make unroute-opencode` puts
-OpenCode back to talking to Splash directly.
+### Common start/stop problems
+
+- **Cannot connect to Docker:** start Docker Desktop and wait for `docker info` to
+  succeed, then run `make up` again.
+- **Proxy returns 502 / `splash-runtime` is down:** check Splash's two API URLs above.
+  The proxy container's own healthcheck can pass while Splash is unavailable.
+- **Startup fails a healthcheck:** inspect `docker compose ps` and
+  `docker compose logs --tail 100 <service>`. Do not delete volumes as a first fix.
+- **Notifier says "Address already in use":** check the existing listener with
+  `curl -fsS --max-time 5 http://127.0.0.1:9393/healthz`. If you need to stop a copy whose
+  terminal is gone, run `lsof -nP -iTCP:9393 -sTCP:LISTEN`, inspect its PID using
+  `ps -p PID -o pid=,command=`, and only after confirming it is this project's
+  `notify-macos.py`, run `kill -TERM PID` (replace `PID` with the verified number).
+  Do not use a broad `pkill python` or kill an unknown process to free the port.
+- **OpenCode fails after the stack stops:** its base URL may still point to 8100.
+  Run `make unroute-opencode` and restart OpenCode, or bring the proxy back with
+  `make up`.
 
 ## The two dashboards
 
@@ -62,10 +247,10 @@ panel filters HTTP 4xx/5xx responses; the all-traces panel includes every reques
 Prometheus sends firing alerts to `alertmanager:9093`. Alertmanager forwards **critical**
 alerts and their resolutions to `http://host.docker.internal:9393/alert`;
 non-critical alerts stay visible in the Alertmanager UI without desktop notifications.
-Run the host listener in a separate terminal:
+Run the host listener in terminal B, as described in the start sequence. In terminal A
+you can test notifications and check its health:
 
 ```bash
-make notify                  # foreground; Ctrl-C stops only the listener
 make notify-test             # ask macOS to show a test notification
 ./scripts/verify.sh --notify # also check that the host listener is reachable
 ```
@@ -74,8 +259,9 @@ The listener is intentionally outside Docker so `osascript` can reach your deskt
 It binds to loopback by default. Allow notifications for the relevant application in
 macOS System Settings and check Focus/Do Not Disturb if nothing appears. A successful
 `osascript` call means the OS accepted the request, not that a banner was visible.
-`make up`/`make down` manage containers only; they do not install a login service or
-start/stop this host listener. Without it, Alertmanager retries webhook deliveries.
+Neither `make up` nor `make down` starts/stops this listener or installs a login
+service. Without it, Alertmanager retries webhook deliveries. Optional login-time
+startup is tracked in [issue #7](https://github.com/nunosousa-dev/splash-observability/issues/7).
 
 `SPLASH_NOTIFY_HOST`, `SPLASH_NOTIFY_PORT` and `SPLASH_NOTIFY_DEDUPE` configure the listener
 (defaults: `127.0.0.1`, `9393`, `600` seconds). If you change the address, update the URL
@@ -95,6 +281,11 @@ so it is easy to read, audit and run outside Docker:
 ```bash
 make proxy               # foreground, reads SPLASH_* env vars
 ```
+
+This is an alternative to the containerized proxy, not a second proxy to run alongside
+it on the same ports. Press Ctrl-C in its terminal to stop it. Do not run `make proxy`
+while Compose's `proxy` is already using ports 8100/8101. The default host invocation
+does not push to Loki unless `LOKI_URL` is set; the normal Compose setup configures it.
 
 Counters, gauges and histograms are rendered by hand into the Prometheus text format.
 All metric mutations take one lock, since `ThreadingHTTPServer` handles each connection
