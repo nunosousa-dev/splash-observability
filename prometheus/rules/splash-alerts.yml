@@ -1,0 +1,95 @@
+groups:
+  - name: splash-inference
+    rules:
+      - record: splash:ttft_p95
+        expr: histogram_quantile(0.95, sum(rate(splash_http_ttft_seconds_bucket[5m])) by (le))
+
+      - record: splash:latency_p95
+        expr: histogram_quantile(0.95, sum(rate(splash_http_request_seconds_bucket[5m])) by (le))
+
+      - record: splash:cache_reuse_ratio
+        expr: >
+          sum(rate(splash_cache_reused_tokens_total[5m]))
+          /
+          clamp_min(sum(rate(splash_cache_reused_tokens_total[5m])) + sum(rate(splash_cache_cold_misses_total[5m])), 0.0001)
+
+      - alert: SplashUnreachable
+        expr: splash_obs_upstream_available == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Splash inference server is not reachable"
+          description: "The observability proxy could not reach Splash at 127.0.0.1:8000."
+
+      - alert: SplashRequestFailures
+        expr: rate(splash_requests_failed_total[5m]) > 0.02
+        for: 5m
+        labels:
+          severity: high
+        annotations:
+          summary: "Splash is failing requests"
+          description: "More than 1 failing request per minute over the last 5 minutes."
+
+      - alert: SplashTTFTSlow
+        expr: splash:ttft_p95 > 15
+        for: 10m
+        labels:
+          severity: medium
+        annotations:
+          summary: "Time to first token is slow (p95 > 15s)"
+          description: "TTFT p95 is {{ $value }}s. Check model quantisation, context size and scheduler queue."
+
+      - alert: SplashDecodeThroughputLow
+        expr: splash_decode_tokens_per_second < 20
+        for: 10m
+        labels:
+          severity: medium
+        annotations:
+          summary: "Decode throughput dropped below 20 tokens/s"
+          description: "Current decode rate is {{ $value }} tokens/s."
+
+      - alert: SplashMemoryPressure
+        expr: splash_memory_pressure{state="critical"} == 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Splash is under critical memory pressure"
+          description: "Runtime is throttling to stay inside the memory budget. Check the memory gauge panel in Grafana."
+
+      - alert: SplashThermalThrottling
+        expr: splash_thermal_state{state="serious"} == 1 or splash_thermal_state{state="critical"} == 1
+        for: 5m
+        labels:
+          severity: high
+        annotations:
+          summary: "Device thermal state is serious or critical"
+          description: "The SoC is throttling; inference throughput will degrade."
+
+      - alert: SplashKVCacheExhausted
+        expr: (splash_kv_pages_active / clamp_min(splash_kv_pages_allocated, 1)) > 0.95
+        for: 10m
+        labels:
+          severity: medium
+        annotations:
+          summary: "KV cache is close to full"
+          description: "KV page utilisation is {{ $value }}. Consider shorter contexts or fewer concurrent requests."
+
+      - alert: SplashCacheReuseLow
+        expr: splash:cache_reuse_ratio < 0.3
+        for: 15m
+        labels:
+          severity: low
+        annotations:
+          summary: "Prompt cache reuse is low"
+          description: "Only {{ $value }} of prompt tokens are being reused. Agents that re-send growing prompts benefit from stable prefixes."
+
+      - alert: SplashClientAbortsHigh
+        expr: rate(splash_obs_client_disconnects_total[5m]) > 0.1
+        for: 10m
+        labels:
+          severity: low
+        annotations:
+          summary: "Clients are aborting generations"
+          description: "High abort rate usually means generations are too slow for the client's patience."

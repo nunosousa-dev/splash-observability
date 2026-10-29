@@ -1,0 +1,10 @@
+# Grafana needs the providers under a top-level `providers:` key, and the file
+# provider's directory under `options.path` (the older `filename:` key is not
+# read by current Grafana and crashes the provisioning stub).
+apiVersion: 1
+providers:
+  - name: Splash
+    type: file
+    folder: Splash
+    options:
+      path: /var/lib/grafana/dashboards

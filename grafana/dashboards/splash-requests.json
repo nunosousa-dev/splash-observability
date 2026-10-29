@@ -1,0 +1,152 @@
+{
+  "title": "Splash request traces",
+  "tags": ["splash", "inference", "llm", "traces"],
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Requests per minute",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(splash_obs_requests_total[1m])) * 60" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "series": "" } },
+      "fieldConfig": { "defaults": { "unit": "req/min" }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "title": "Error rate",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(splash_obs_errors_total[5m])) * 60" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "series": "" } },
+      "fieldConfig": { "defaults": { "unit": "errors/min", "thresholds": { "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "title": "Client aborts",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(splash_obs_client_disconnects_total[5m])) * 60" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "series": "" } },
+      "fieldConfig": { "defaults": { "unit": "aborts/min" }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "title": "Tokens in / out (last 1m)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(splash_obs_tokens_total{kind=\"prompt\"}[1m])) * 60", "legend": "prompt tokens" },
+        { "refId": "B", "expr": "sum(rate(splash_obs_tokens_total{kind=\"completion\"}[1m])) * 60", "legend": "completion tokens" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "series": "" } },
+      "fieldConfig": { "defaults": { "unit": "tokens" }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "title": "Tool calls per minute",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(splash_obs_tool_calls_total[1m])) * 60" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "series": "" } },
+      "fieldConfig": { "defaults": { "unit": "calls/min" }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "title": "Proxy up",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "splash_obs_upstream_available" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "series": "" } },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] } }, "overrides": [] }
+    },
+
+    {
+      "id": 7,
+      "title": "Requests by model",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(splash_obs_requests_total[1m])) by (model)" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "req/s" }, "overrides": [] }
+    },
+    {
+      "id": 8,
+      "title": "Errors by type",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(splash_obs_errors_total[5m])) by (type)" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "errors/s" }, "overrides": [] }
+    },
+    {
+      "id": 9,
+      "title": "Duration and TTFT through the proxy",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.50, sum(rate(splash_obs_request_duration_seconds_bucket[5m])) by (le))", "legend": "duration p50" },
+        { "refId": "B", "expr": "histogram_quantile(0.95, sum(rate(splash_obs_request_duration_seconds_bucket[5m])) by (le))", "legend": "duration p95" },
+        { "refId": "C", "expr": "histogram_quantile(0.95, sum(rate(splash_obs_ttft_seconds_bucket[5m])) by (le))", "legend": "TTFT p95" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 10,
+      "title": "Token volume",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(splash_obs_tokens_total{kind=\"prompt\"}[1m]))", "legend": "prompt tokens/s" },
+        { "refId": "B", "expr": "sum(rate(splash_obs_tokens_total{kind=\"completion\"}[1m]))", "legend": "completion tokens/s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "tokens/s" }, "overrides": [] }
+    },
+    {
+      "id": 11,
+      "title": "Recent traces (metadata only)",
+      "type": "logs",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 20 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        { "refId": "A", "query": "{app=\"splash-obs\", status_class=~\"4xx|5xx|502\"}", "limit": 100 }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "All traces",
+      "type": "logs",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 32 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        { "refId": "A", "query": "{app=\"splash-obs\"}", "limit": 200 }
+      ]
+    }
+  ]
+}

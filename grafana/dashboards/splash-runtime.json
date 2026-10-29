@@ -1,0 +1,220 @@
+{
+  "title": "Splash runtime - inference engine",
+  "tags": ["splash", "inference", "llm"],
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Requests per minute",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(splash_requests_submitted_total[1m])) * 60" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "series": "" } },
+      "fieldConfig": { "defaults": { "unit": "req/min", "color": { "mode": "thresholds" } }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "title": "Decode throughput",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "splash_decode_tokens_per_second" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "series": "" } },
+      "fieldConfig": { "defaults": { "unit": "tokens/s" }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "title": "Prefill throughput",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "splash_prefill_tokens_per_second" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "series": "" } },
+      "fieldConfig": { "defaults": { "unit": "tokens/s" }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "title": "TTFT p95",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.95, sum(rate(splash_http_ttft_seconds_bucket[5m])) by (le))" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "series": "" } },
+      "fieldConfig": { "defaults": { "unit": "s", "thresholds": { "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 5 }, { "color": "red", "value": 15 } ] } }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "title": "Prompt cache reuse",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(splash_cache_reused_tokens_total[5m])) / clamp_min(sum(rate(splash_cache_reused_tokens_total[5m])) + sum(rate(splash_cache_cold_misses_total[5m])), 0.0001)" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "series": "" } },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "thresholds": { "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 0.4 }, { "color": "green", "value": 0.7 } ] } }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "title": "Draft acceptance",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "splash_draft_acceptance_ratio" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "series": "" } },
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] }
+    },
+
+    {
+      "id": 7,
+      "title": "Request rate: submitted / completed / failed",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(splash_requests_submitted_total[1m]))", "legend": "submitted" },
+        { "refId": "B", "expr": "sum(rate(splash_requests_completed_total[1m]))", "legend": "completed" },
+        { "refId": "C", "expr": "sum(rate(splash_requests_failed_total[1m]))", "legend": "failed" },
+        { "refId": "D", "expr": "sum(rate(splash_requests_cancelled_total[1m]))", "legend": "cancelled" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "req/s" }, "overrides": [] }
+    },
+    {
+      "id": 8,
+      "title": "End-to-end request latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.50, sum(rate(splash_http_request_seconds_bucket[5m])) by (le))", "legend": "p50" },
+        { "refId": "B", "expr": "histogram_quantile(0.95, sum(rate(splash_http_request_seconds_bucket[5m])) by (le))", "legend": "p95" },
+        { "refId": "C", "expr": "histogram_quantile(0.99, sum(rate(splash_http_request_seconds_bucket[5m])) by (le))", "legend": "p99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 9,
+      "title": "Time to first token vs inter-token latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "splash_ttft_p50_milliseconds", "legend": "TTFT p50" },
+        { "refId": "B", "expr": "splash_ttft_p95_milliseconds", "legend": "TTFT p95" },
+        { "refId": "C", "expr": "splash_itl_p50_milliseconds", "legend": "ITL p50" },
+        { "refId": "D", "expr": "splash_itl_p95_milliseconds", "legend": "ITL p95" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] }
+    },
+    {
+      "id": 10,
+      "title": "Throughput",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "splash_decode_tokens_per_second", "legend": "decode tok/s" },
+        { "refId": "B", "expr": "splash_prefill_tokens_per_second", "legend": "prefill tok/s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "tokens/s" }, "overrides": [] }
+    },
+    {
+      "id": 11,
+      "title": "Scheduler state",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "splash_scheduler_queued", "legend": "queued" },
+        { "refId": "B", "expr": "splash_scheduler_prefilling", "legend": "prefilling" },
+        { "refId": "C", "expr": "splash_scheduler_decoding", "legend": "decoding" },
+        { "refId": "D", "expr": "splash_scheduler_waiting_resources", "legend": "waiting on resources" },
+        { "refId": "E", "expr": "splash_admission_waiting_concurrency", "legend": "admission: concurrency" },
+        { "refId": "F", "expr": "splash_admission_waiting_memory", "legend": "admission: memory" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 12,
+      "title": "KV cache pages",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "splash_kv_pages_allocated", "legend": "allocated" },
+        { "refId": "B", "expr": "splash_kv_pages_active", "legend": "active" },
+        { "refId": "C", "expr": "splash_kv_pages_cache", "legend": "cached" },
+        { "refId": "D", "expr": "splash_kv_allocated_bytes", "legend": "KV bytes" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 13,
+      "title": "Memory",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "splash_memory_current_bytes", "legend": "current" },
+        { "refId": "B", "expr": "splash_memory_peak_bytes", "legend": "peak" },
+        { "refId": "C", "expr": "splash_memory_limit_bytes", "legend": "limit" },
+        { "refId": "D", "expr": "splash_memory_headroom_bytes", "legend": "headroom" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] }
+    },
+    {
+      "id": 14,
+      "title": "Speculative decoding: drafted vs accepted",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(splash_drafted_tokens_total[5m]))", "legend": "drafted tok/s" },
+        { "refId": "B", "expr": "sum(rate(splash_accepted_draft_tokens_total[5m]))", "legend": "accepted tok/s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "tokens/s" }, "overrides": [] }
+    },
+    {
+      "id": 15,
+      "title": "Health states (1 = current state)",
+      "type": "table",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "splash_memory_pressure", "legend": "memory pressure" },
+        { "refId": "B", "expr": "splash_thermal_state", "legend": "thermal" },
+        { "refId": "C", "expr": "splash_disk_writes_gated", "legend": "disk writes gated" },
+        { "refId": "D", "expr": "splash_metal_healthy", "legend": "metal healthy" },
+        { "refId": "E", "expr": "splash_ready", "legend": "ready" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 16,
+      "title": "Latency distribution (requests per bucket, last 5m)",
+      "type": "bargauge",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(splash_http_request_seconds_bucket[5m])) by (le)" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "series": "" } },
+      "fieldConfig": { "defaults": { "unit": "req/s" }, "overrides": [] }
+    }
+  ]
+}

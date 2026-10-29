@@ -1,0 +1,121 @@
+# Splash observability stack
+#
+# Splash listens on 127.0.0.1 only and allow-lists Host headers. The proxy container
+# connects to the Mac through host.docker.internal and presents the loopback Host
+# header, so Splash stays loopback-only and nothing else needs to change.
+# If you prefer the explicit route, start Splash with --allowed-host host.docker.internal
+# and set SPLASH_UPSTREAM_HOST_HEADER to the same value.
+#
+#   ./scripts/up.sh        (docker compose up -d)
+#   ./scripts/verify.sh    (end-to-end check)
+#   point clients at http://127.0.0.1:8100/v1
+#
+# Image versions are pinned. Several config keys in this repo are version-sensitive:
+# Prometheus 3 rejects the scrape_config `name:`/`targets:` shorthand that 2.x accepted,
+# and Grafana 13 requires `providers:` + `options.path` for file provisioning (the old
+# `filename:` key panics the provisioning stub at startup). Bump these deliberately,
+# with ./scripts/verify.sh afterwards.
+services:
+  proxy:
+    build: ./proxy
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8100:8100"
+      # Loopback only. Prometheus scrapes proxy:8101 over the compose network;
+      # this mapping is for curling the metrics locally while debugging.
+      - "127.0.0.1:8101:8101"
+    environment:
+      SPLASH_UPSTREAM_HOST: host.docker.internal
+      SPLASH_UPSTREAM_PORT: "8000"
+      SPLASH_UPSTREAM_HOST_HEADER: "127.0.0.1"
+      SPLASH_OBS_HOST: "0.0.0.0"
+      SPLASH_OBS_PORT: "8100"
+      SPLASH_OBS_METRICS_HOST: "0.0.0.0"
+      SPLASH_OBS_METRICS_PORT: "8101"
+      LOKI_URL: http://loki:3100
+      SPLASH_OBS_TRACE_LOG: /data/logs/requests.jsonl
+      SPLASH_OBS_TRACE_MAX_BYTES: "67108864"
+      SPLASH_OBS_TRACE_KEEP: "4"
+    volumes:
+      - ./logs:/data/logs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # 127.0.0.1, not localhost: busybox wget in the alpine image tries IPv6 ::1
+    # first and the proxy only binds IPv4.
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8100/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - loki
+
+  prometheus:
+    image: prom/prometheus:v3.15.1
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  alertmanager:
+    image: prom/alertmanager:v0.34.1
+    restart: unless-stopped
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9093/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  loki:
+    image: grafana/loki:3.7.9
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    # No healthcheck: the Loki image is a bare binary with no shell, wget or curl.
+    # Readiness is checked by the Loki scrape target in Prometheus instead.
+
+  grafana:
+    image: grafana/grafana:13.3.0
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_VIEWER: "true"
+      GF_ANALYTICS_ENABLED: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - prometheus
+      - loki
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  loki-data:

@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+
+# Trace log: runtime output, potentially large, and it holds request metadata that
+# has no business being in version control. Keep the directory, ignore what lands in it.
+logs/*
+!logs/.gitkeep
+
+# Proxy unit tests write throwaway trace files here.
+tests/_test_*.jsonl*
+
+# point-opencode.sh backs up ~/.config/opencode/opencode.json next to the config,
+# but if OPENCODE_CONFIG is ever pointed inside the repo:
+*.bak
+
+# Local overrides / scratch
+.env
+.env.local
